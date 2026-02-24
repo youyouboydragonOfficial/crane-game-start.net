@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>超高度物理クレーンゲーム</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #0f172a;
+            touch-action: none;
+            user-select: none;
+        }
+        #game-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: radial-gradient(circle, #1e293b 0%, #020617 100%);
+        }
+        canvas {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.9);
+            border: 4px solid #475569;
+            border-radius: 12px;
+        }
+        .mode-btn.active {
+            background-color: #3b82f6;
+            border-color: #60a5fa;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.6);
+            transform: scale(1.05);
+        }
+        .disabled-btn {
+            opacity: 0.5 !important;
+            pointer-events: none !important;
+            filter: grayscale(1);
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen text-white font-sans">
+
+    <!-- Header -->
+    <div class="h-16 flex justify-between items-center px-6 bg-slate-800 border-b border-slate-700 shadow-lg z-10 shrink-0">
+        <div class="flex items-center gap-4">
+            <h1 class="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+                CRANE MASTER
+            </h1>
+            <div class="text-md font-bold bg-slate-900 px-4 py-1 rounded-full border border-slate-600">
+                SCORE: <span id="score" class="text-green-400 text-xl tabular-nums">0</span>
+            </div>
+        </div>
+        
+        <div class="hidden md:flex gap-2">
+            <button id="mode-std" class="mode-btn active px-4 py-1 text-sm font-bold rounded-lg border border-slate-600 bg-slate-700 transition-all">標準</button>
+            <button id="mode-power" class="mode-btn px-4 py-1 text-sm font-bold rounded-lg border border-slate-600 bg-slate-700 transition-all">強パワー</button>
+            <button id="mode-tech" class="mode-btn px-4 py-1 text-sm font-bold rounded-lg border border-slate-600 bg-slate-700 transition-all">テクニカル</button>
+        </div>
+    </div>
+
+    <!-- Game Area -->
+    <div id="game-container" class="flex-grow relative overflow-hidden">
+    </div>
+
+    <!-- Control Panel -->
+    <div class="h-48 bg-slate-900 border-t border-slate-800 p-4 flex justify-around items-center shrink-0 z-10">
+        
+        <div class="flex gap-4">
+            <button id="btn-left" class="w-24 h-24 bg-slate-700 rounded-2xl flex justify-center items-center shadow-[0_5_0_#1e293b] active:translate-y-1 active:shadow-none transition-all">
+                <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="3" d="M15 19l-7-7 7-7"></path></svg>
+            </button>
+            <button id="btn-right" class="w-24 h-24 bg-slate-700 rounded-2xl flex justify-center items-center shadow-[0_5_0_#1e293b] active:translate-y-1 active:shadow-none transition-all">
+                <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="3" d="M9 5l7 7-7 7"></path></svg>
+            </button>
+        </div>
+
+        <div class="flex flex-col items-center gap-4">
+            <button id="btn-action" class="w-40 h-24 bg-rose-600 rounded-2xl flex justify-center items-center text-white font-black text-xl shadow-[0_8px_0_#9f1239] border-4 border-rose-400 active:translate-y-2 active:shadow-none transition-all">
+                つかむ
+            </button>
+            <button id="btn-reset" class="px-6 py-2 bg-slate-700 rounded-full text-xs font-bold border border-slate-600">
+                景品を補充
+            </button>
+        </div>
+    </div>
+
+    <script>
+        window.onload = function() {
+            if (typeof Matter === 'undefined') {
+                console.error("Matter.js could not be loaded.");
+                return;
+            }
+
+            const { Engine, Render, Runner, Bodies, Body, Composite, Constraint, Events, Common } = Matter;
+
+            const engine = Engine.create();
+            engine.positionIterations = 100; 
+            engine.velocityIterations = 100;
+            const world = engine.world;
+
+            const width = 800;
+            const height = 600;
+
+            const render = Render.create({
+                element: document.getElementById('game-container'),
+                engine: engine,
+                options: {
+                    width: width,
+                    height: height,
+                    wireframes: false,
+                    background: 'transparent'
+                }
+            });
+
+            Render.run(render);
+            const runner = Runner.create();
+            Runner.run(runner, engine);
+
+            // --- Stage ---
+            const wallOptions = { 
+                isStatic: true, 
+                label: 'stage-wall', 
+                render: { fillStyle: '#1e293b' },
+                friction: 0.5,
+                slop: 0 
+            };
+            const ground = Bodies.rectangle(width/2, height + 40, width, 100, wallOptions);
+            const leftWall = Bodies.rectangle(-40, height/2, 100, height, wallOptions);
+            const rightWall = Bodies.rectangle(width + 40, height/2, 100, height, wallOptions);
+            
+            const platformWidth = width * 0.85;
+            const platform = Bodies.rectangle(width * 0.65, height - 70, platformWidth, 140, {
+                isStatic: true,
+                friction: 1.0,
+                label: 'platform',
+                render: { fillStyle: '#334155', strokeStyle: '#475569', lineWidth: 4 }
+            });
+
+            const guard = Bodies.rectangle(230, 360, 30, 200, {
+                isStatic: true,
+                label: 'guard',
+                slop: 0,
+                render: { fillStyle: '#ef4444', strokeStyle: '#b91c1c', lineWidth: 2 }
+            });
+
+            const sensor = Bodies.rectangle(width * 0.1, height - 20, width * 0.2, 40, {
+                isStatic: true, isSensor: true, render: { fillStyle: 'transparent' }
+            });
+
+            Composite.add(world, [ground, leftWall, rightWall, platform, guard, sensor]);
+
+            // --- Compact Wide Arm Unit ---
+            let armX = 100; 
+            let armY = 80;
+            let gripStiffness = 0.6;
+            let gripCloseLen = 160; 
+            let gripOpenLen = -20; 
+            let gameState = 'idle'; 
+            let shouldTriggerGrab = false;
+
+            const armUnitWidth = 120; 
+            const armUnit = Bodies.rectangle(armX, armY, armUnitWidth, 30, {
+                isStatic: true, 
+                label: 'arm-unit',
+                render: { fillStyle: '#cbd5e1', strokeStyle: '#64748b', lineWidth: 2 }
+            });
+
+            const armRoof = Bodies.polygon(armX, armY - 20, 3, 35, {
+                isStatic: true,
+                angle: Math.PI,
+                render: { fillStyle: 'transparent' }
+            });
+
+            function createClaw(isLeft) {
+                const s = isLeft ? -1 : 1;
+                const upper = Bodies.rectangle(s * 25, 35, 35, 110, { angle: s * 0.35 });
+                const lower = Bodies.rectangle(s * 65, 95, 110, 35, { angle: s * -0.6 });
+
+                const claw = Body.create({
+                    parts: [upper, lower],
+                    friction: 1.0,
+                    frictionStatic: 50,
+                    restitution: 0.05, 
+                    inertia: Infinity,
+                    density: 0.03, 
+                    label: 'claw-part'
+                });
+                claw.render.fillStyle = isLeft ? '#fbbf24' : '#d97706';
+                claw.render.strokeStyle = '#ffffff';
+                claw.render.lineWidth = 3;
+                return claw;
+            }
+
+            const leftClaw = createClaw(true);
+            const rightClaw = createClaw(false);
+
+            const createLock = (base, claw, offsetBaseX, offsetClawX) => {
+                return [
+                    Constraint.create({
+                        bodyA: base, pointA: { x: offsetBaseX, y: 10 },
+                        bodyB: claw, pointB: { x: offsetClawX, y: -55 },
+                        stiffness: 1, length: 0
+                    }),
+                    Constraint.create({
+                        bodyA: base, pointA: { x: offsetBaseX, y: -10 },
+                        bodyB: claw, pointB: { x: offsetClawX, y: -60 },
+                        stiffness: 1, length: 0
+                    })
+                ];
+            };
+
+            const leftLocks = createLock(armUnit, leftClaw, -50, 15);
+            const rightLocks = createLock(armUnit, rightClaw, 50, -15);
+
+            const leftCtrl = Constraint.create({
+                bodyA: armUnit, pointA: { x: -110, y: -10 },
+                bodyB: leftClaw, pointB: { x: 25, y: 35 },
+                stiffness: gripStiffness, length: gripCloseLen,
+                render: { strokeStyle: 'transparent' }
+            });
+            const rightCtrl = Constraint.create({
+                bodyA: armUnit, pointA: { x: 110, y: -10 },
+                bodyB: rightClaw, pointB: { x: -25, y: 35 },
+                stiffness: gripStiffness, length: gripCloseLen,
+                render: { strokeStyle: 'transparent' }
+            });
+
+            Composite.add(world, [armUnit, armRoof, leftClaw, rightClaw, ...leftLocks, ...rightLocks, leftCtrl, rightCtrl]);
+
+            // --- Prize Spawning ---
+            const colors = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899'];
+            function spawn(count) {
+                for(let i=0; i<count; i++) {
+                    const x = 300 + Math.random() * 450; 
+                    const y = 300 - Math.random() * 100;
+                    const type = Common.choose(['circle', 'poly', 'box']); 
+                    const color = Common.choose(colors);
+                    const opt = { 
+                        restitution: 0.1, 
+                        friction: 1.0, 
+                        frictionStatic: 25,
+                        slop: 0.01, 
+                        density: 0.015,
+                        label: 'prize',
+                        render: { fillStyle: color, strokeStyle: '#fff', lineWidth: 1 }
+                    };
+
+                    let prize;
+                    if (type === 'circle') {
+                        prize = Bodies.circle(x, y, 28, opt);
+                    } else if (type === 'poly') {
+                        prize = Bodies.polygon(x, y, 6, 35, opt); 
+                    } else {
+                        prize = Bodies.rectangle(x, y, 55, 55, {
+                            ...opt,
+                            chamfer: { radius: 10 } 
+                        }); 
+                    }
+                    Composite.add(world, prize);
+                }
+            }
+            spawn(15);
+
+            // --- Logic ---
+            const keys = { left: false, right: false };
+            let currentLen = gripCloseLen; 
+            let isGrabbing = true; 
+            let score = 0;
+
+            const btnAction = document.getElementById('btn-action');
+            const btnLeft = document.getElementById('btn-left');
+            const btnRight = document.getElementById('btn-right');
+
+            function handleAction() {
+                if (gameState === 'idle') {
+                    gameState = 'opening';
+                    isGrabbing = false;
+                    shouldTriggerGrab = false;
+                    btnAction.textContent = '準備中...';
+                    btnAction.classList.add('disabled-btn');
+                    btnLeft.classList.add('disabled-btn');
+                    btnRight.classList.add('disabled-btn');
+                } 
+                else if (gameState === 'dropping') {
+                    shouldTriggerGrab = true;
+                }
+            }
+
+            const bindBtn = (id, k) => {
+                const el = document.getElementById(id);
+                el.onmousedown = el.ontouchstart = (e) => { e.preventDefault(); if(gameState==='idle') keys[k] = true; };
+                el.onmouseup = el.onmouseleave = el.ontouchend = (e) => { e.preventDefault(); keys[k] = false; };
+            };
+            bindBtn('btn-left', 'left');
+            bindBtn('btn-right', 'right');
+            btnAction.onclick = handleAction;
+            document.getElementById('btn-reset').onclick = () => spawn(5);
+
+            function setMode(mode) {
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                if(mode === 'std') { gripStiffness = 0.6; gripCloseLen = 160; }
+                else if(mode === 'power') { gripStiffness = 0.95; gripCloseLen = 200; } 
+                else { gripStiffness = 0.35; gripCloseLen = 130; } 
+                leftCtrl.stiffness = rightCtrl.stiffness = gripStiffness;
+                document.getElementById('mode-'+mode).classList.add('active');
+            }
+            ['std', 'power', 'tech'].forEach(m => document.getElementById('mode-'+m).onclick = () => setMode(m));
+
+            Events.on(engine, 'beforeUpdate', () => {
+                const moveSpeedLimit = 4.0; // 移動速度を一律の最高速に設定
+                const dropSpeed = 2.0; 
+
+                if (gameState === 'idle') {
+                    if (keys.left) armX -= moveSpeedLimit;
+                    if (keys.right) armX += moveSpeedLimit;
+                    isGrabbing = true; 
+                    btnAction.classList.remove('disabled-btn');
+                    btnLeft.classList.remove('disabled-btn');
+                    btnRight.classList.remove('disabled-btn');
+                } 
+                else if (gameState === 'opening') {
+                    isGrabbing = false;
+                    if (Math.abs(currentLen - gripOpenLen) < 5) {
+                        gameState = 'dropping';
+                    }
+                }
+                else if (gameState === 'dropping') {
+                    armY += dropSpeed;
+                    btnAction.classList.remove('disabled-btn');
+                    btnAction.textContent = '今すぐつかむ！';
+                    
+                    if (shouldTriggerGrab || armY >= 400) { 
+                        gameState = 'grabbing';
+                        btnAction.textContent = 'つかみ中';
+                        btnAction.classList.add('disabled-btn');
+                        setTimeout(() => { gameState = 'lifting'; }, 1100);
+                    }
+                } 
+                else if (gameState === 'grabbing') {
+                    isGrabbing = true; 
+                } 
+                else if (gameState === 'lifting') {
+                    isGrabbing = true;
+                    btnAction.textContent = '上昇中';
+                    armY -= dropSpeed;
+                    if (armY <= 65) { 
+                        armY = 65;
+                        gameState = 'returning';
+                    }
+                } 
+                else if (gameState === 'returning') {
+                    isGrabbing = true;
+                    btnAction.textContent = '戻り中';
+                    
+                    // 慣性（加速度）を使わず、最初から最高速で戻る
+                    armX -= moveSpeedLimit;
+                    
+                    if (armX <= 100) {
+                        armX = 100;
+                        gameState = 'releasing';
+                        btnAction.textContent = 'はなす';
+                        setTimeout(() => { 
+                            gameState = 'idle'; 
+                            btnAction.textContent = 'つかむ';
+                        }, 1400);
+                    }
+                } 
+                else if (gameState === 'releasing') {
+                    isGrabbing = false; 
+                }
+
+                const margin = armUnitWidth / 2 + 15;
+                armX = Common.clamp(armX, margin, width - margin);
+                Body.setPosition(armUnit, { x: armX, y: armY });
+                Body.setPosition(armRoof, { x: armX, y: armY - 20 });
+
+                Body.setAngle(leftClaw, 0);
+                Body.setAngle(rightClaw, 0);
+
+                const target = isGrabbing ? gripCloseLen : gripOpenLen;
+                const followSpeed = 0.08;
+                currentLen += (target - currentLen) * followSpeed; 
+                leftCtrl.length = rightCtrl.length = currentLen;
+            });
+
+            Events.on(render, 'afterRender', () => {
+                const ctx = render.context;
+                
+                ctx.beginPath();
+                ctx.moveTo(armUnit.position.x, 0);
+                ctx.lineTo(armUnit.position.x, armUnit.position.y - 4);
+                ctx.strokeStyle = '#94a3b8'; 
+                ctx.lineWidth = 4; 
+                ctx.stroke();
+
+                if (gameState === 'idle') {
+                    ctx.save();
+                    ctx.setLineDash([10, 5]);
+                    ctx.beginPath();
+                    ctx.moveTo(armUnit.position.x, armUnit.position.y + 15);
+                    ctx.lineTo(armUnit.position.x, height - 100); 
+                    
+                    ctx.strokeStyle = '#22d3ee'; 
+                    ctx.lineWidth = 3; 
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#0891b2';
+                    
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            });
+
+            Events.on(engine, 'collisionStart', (e) => {
+                e.pairs.forEach(p => {
+                    const prize = p.bodyA === sensor ? p.bodyB : (p.bodyB === sensor ? p.bodyA : null);
+                    if(prize && prize.label === 'prize') {
+                        Composite.remove(world, prize);
+                        score += 500; 
+                        document.getElementById('score').innerText = score;
+                    }
+                });
+            });
+        };
+    </script>
+</body>
+</html>
