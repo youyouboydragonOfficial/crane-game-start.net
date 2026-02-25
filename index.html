@@ -59,8 +59,6 @@
         
         <div class="hidden md:flex gap-2">
             <button id="mode-std" class="mode-btn active px-4 py-1 text-sm font-bold rounded-lg border border-slate-600 bg-slate-700 transition-all">標準</button>
-            <button id="mode-power" class="mode-btn px-4 py-1 text-sm font-bold rounded-lg border border-slate-600 bg-slate-700 transition-all">強パワー</button>
-            <button id="mode-tech" class="mode-btn px-4 py-1 text-sm font-bold rounded-lg border border-slate-600 bg-slate-700 transition-all">テクニカル</button>
         </div>
     </div>
 
@@ -302,15 +300,12 @@
             btnAction.onclick = handleAction;
             document.getElementById('btn-reset').onclick = () => spawn(5);
 
-            function setMode(mode) {
-                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-                if(mode === 'std') { gripStiffness = 0.6; gripCloseLen = 160; }
-                else if(mode === 'power') { gripStiffness = 0.95; gripCloseLen = 200; } 
-                else { gripStiffness = 0.35; gripCloseLen = 130; } 
+            document.getElementById('mode-std').onclick = () => {
+                gripStiffness = 0.6;
+                gripCloseLen = 160;
                 leftCtrl.stiffness = rightCtrl.stiffness = gripStiffness;
-                document.getElementById('mode-'+mode).classList.add('active');
-            }
-            ['std', 'power', 'tech'].forEach(m => document.getElementById('mode-'+m).onclick = () => setMode(m));
+                document.getElementById('mode-std').classList.add('active');
+            };
 
             Events.on(engine, 'beforeUpdate', () => {
                 const moveSpeedLimit = 4.0; // 移動速度を一律の最高速に設定
