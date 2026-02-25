@@ -379,8 +379,10 @@
                 Body.setAngle(rightClaw, 0);
 
                 const target = isGrabbing ? gripCloseLen : gripOpenLen;
-                const followSpeed = 0.08;
-                currentLen += (target - currentLen) * followSpeed; 
+                const followSpeed = (!isGrabbing && (gameState === 'opening' || gameState === 'releasing')) ? 0.03 : 0.08;
+                const lenDelta = (target - currentLen) * followSpeed;
+                const maxLenStep = isGrabbing ? 10 : 4;
+                currentLen += Common.clamp(lenDelta, -maxLenStep, maxLenStep);
                 leftCtrl.length = rightCtrl.length = currentLen;
             });
 
