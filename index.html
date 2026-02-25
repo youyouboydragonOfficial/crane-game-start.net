@@ -59,8 +59,6 @@
         
         <div class="hidden md:flex gap-2">
             <button id="mode-std" class="mode-btn active px-4 py-1 text-sm font-bold rounded-lg border border-slate-600 bg-slate-700 transition-all">標準</button>
-            <button id="mode-power" class="mode-btn px-4 py-1 text-sm font-bold rounded-lg border border-slate-600 bg-slate-700 transition-all">強パワー</button>
-            <button id="mode-tech" class="mode-btn px-4 py-1 text-sm font-bold rounded-lg border border-slate-600 bg-slate-700 transition-all">テクニカル</button>
         </div>
     </div>
 
@@ -69,7 +67,7 @@
     </div>
 
     <!-- Control Panel -->
-    <div class="h-48 bg-slate-900 border-t border-slate-800 p-4 flex justify-around items-center shrink-0 z-10">
+    <div class="h-44 bg-slate-900 border-t border-slate-800 p-4 flex justify-around items-center shrink-0 z-10">
         
         <div class="flex gap-4">
             <button id="btn-left" class="w-24 h-24 bg-slate-700 rounded-2xl flex justify-center items-center shadow-[0_5_0_#1e293b] active:translate-y-1 active:shadow-none transition-all">
@@ -80,11 +78,11 @@
             </button>
         </div>
 
-        <div class="flex flex-col items-center gap-4">
+        <div class="flex flex-col items-center gap-2">
             <button id="btn-action" class="w-40 h-24 bg-rose-600 rounded-2xl flex justify-center items-center text-white font-black text-xl shadow-[0_8px_0_#9f1239] border-4 border-rose-400 active:translate-y-2 active:shadow-none transition-all">
                 つかむ
             </button>
-            <button id="btn-reset" class="px-6 py-2 bg-slate-700 rounded-full text-xs font-bold border border-slate-600">
+            <button id="btn-reset" class="mb-3 px-6 py-2 bg-slate-700 rounded-full text-xs font-bold border border-slate-600">
                 景品を補充
             </button>
         </div>
@@ -160,7 +158,7 @@
             let armY = 80;
             let gripStiffness = 0.6;
             let gripCloseLen = 160; 
-            let gripOpenLen = -20; 
+            let gripOpenLen = 20; 
             let gameState = 'idle'; 
             let shouldTriggerGrab = false;
 
@@ -186,7 +184,7 @@
                     parts: [upper, lower],
                     friction: 1.0,
                     frictionStatic: 50,
-                    restitution: 0.05, 
+                    restitution: 0.0, 
                     inertia: Infinity,
                     density: 0.03, 
                     label: 'claw-part'
@@ -242,10 +240,10 @@
                     const type = Common.choose(['circle', 'poly', 'box']); 
                     const color = Common.choose(colors);
                     const opt = { 
-                        restitution: 0.1, 
+                        restitution: 0.0, 
                         friction: 1.0, 
                         frictionStatic: 25,
-                        slop: 0.01, 
+                        slop: 0.001, 
                         density: 0.015,
                         label: 'prize',
                         render: { fillStyle: color, strokeStyle: '#fff', lineWidth: 1 }
@@ -302,15 +300,12 @@
             btnAction.onclick = handleAction;
             document.getElementById('btn-reset').onclick = () => spawn(5);
 
-            function setMode(mode) {
-                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-                if(mode === 'std') { gripStiffness = 0.6; gripCloseLen = 160; }
-                else if(mode === 'power') { gripStiffness = 0.95; gripCloseLen = 200; } 
-                else { gripStiffness = 0.35; gripCloseLen = 130; } 
+            document.getElementById('mode-std').onclick = () => {
+                gripStiffness = 0.6;
+                gripCloseLen = 160;
                 leftCtrl.stiffness = rightCtrl.stiffness = gripStiffness;
-                document.getElementById('mode-'+mode).classList.add('active');
-            }
-            ['std', 'power', 'tech'].forEach(m => document.getElementById('mode-'+m).onclick = () => setMode(m));
+                document.getElementById('mode-std').classList.add('active');
+            };
 
             Events.on(engine, 'beforeUpdate', () => {
                 const moveSpeedLimit = 4.0; // 移動速度を一律の最高速に設定
@@ -384,9 +379,27 @@
                 Body.setAngle(rightClaw, 0);
 
                 const target = isGrabbing ? gripCloseLen : gripOpenLen;
-                const followSpeed = 0.08;
-                currentLen += (target - currentLen) * followSpeed; 
+                const isOpeningPhase = !isGrabbing && (gameState === 'opening' || gameState === 'releasing');
+                const followSpeed = isOpeningPhase ? 0.018 : 0.08;
+                const lenDelta = (target - currentLen) * followSpeed;
+                const maxLenStep = isGrabbing ? 10 : 2.5;
+                currentLen += Common.clamp(lenDelta, -maxLenStep, maxLenStep);
                 leftCtrl.length = rightCtrl.length = currentLen;
+
+                const shouldStabilizePrize = gameState === 'grabbing' || gameState === 'lifting' || gameState === 'returning' || gameState === 'releasing';
+                if (shouldStabilizePrize) {
+                    Composite.allBodies(world).forEach((b) => {
+                        if (b.label !== 'prize') return;
+                        const dx = b.position.x - armUnit.position.x;
+                        const dy = b.position.y - armUnit.position.y;
+                        const nearClaw = Math.abs(dx) < 150 && dy > 10 && dy < 220;
+                        if (!nearClaw) return;
+
+                        const dampX = gameState === 'releasing' ? 0.7 : 0.9;
+                        Body.setVelocity(b, { x: b.velocity.x * dampX, y: b.velocity.y * 0.88 });
+                        Body.setAngularVelocity(b, b.angularVelocity * 0.8);
+                    });
+                }
             });
 
             Events.on(render, 'afterRender', () => {
